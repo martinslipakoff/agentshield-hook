@@ -200,7 +200,7 @@ if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/hook.py" ]; then
 else
     # Try to download from GitHub or hosted URL
     # Replace this URL with your actual hosted location
-    HOOK_URL="${AGENTSHIELD_HOOK_URL:-https://raw.githubusercontent.com/agentshield/hook/main/hook.py}"
+    HOOK_URL="${AGENTSHIELD_HOOK_URL:-https://raw.githubusercontent.com/martinslipakoff/agentshield-hook/main/hook.py}"
     if curl -sSfL "$HOOK_URL" -o "$HOOK_SCRIPT" 2>/dev/null; then
         :
     else
