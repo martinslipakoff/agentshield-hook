@@ -218,8 +218,8 @@ echo -e "${GREEN}[3/4]${NC} Hook script installed"
 python3 << 'PYEOF'
 import json, os, sys
 
-hooks_file = os.path.expanduser("~/.claude/hooks.json")
-hook_cmd = "python3 ~/.agentshield/hook.py"
+home = os.path.expanduser("~")
+hook_cmd = f"python3 {home}/.agentshield/hook.py"
 
 agentshield_hooks = {
     "PreToolUse": [
@@ -246,43 +246,55 @@ agentshield_hooks = {
     ],
 }
 
-# Load existing hooks.json or start fresh
-if os.path.exists(hooks_file):
-    try:
-        with open(hooks_file) as f:
-            data = json.load(f)
-    except json.JSONDecodeError:
+def merge_hooks(file_path, hooks_data):
+    """Load existing file, merge agentshield hooks, write back."""
+    if os.path.exists(file_path):
+        try:
+            with open(file_path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError:
+            data = {}
+    else:
         data = {}
-else:
-    data = {}
 
-hooks = data.get("hooks", {})
+    hooks = data.get("hooks", {})
 
-for event_type, new_entries in agentshield_hooks.items():
-    if event_type not in hooks:
-        hooks[event_type] = []
+    for event_type, new_entries in hooks_data.items():
+        if event_type not in hooks:
+            hooks[event_type] = []
 
-    # Remove any existing agentshield hooks (avoid duplicates on re-install)
-    hooks[event_type] = [
-        entry
-        for entry in hooks[event_type]
-        if not any(
-            "agentshield" in h.get("command", "") for h in entry.get("hooks", [])
-        )
-    ]
+        # Remove existing agentshield hooks (avoid duplicates on re-install)
+        hooks[event_type] = [
+            entry
+            for entry in hooks[event_type]
+            if not any(
+                "agentshield" in h.get("command", "") for h in entry.get("hooks", [])
+            )
+        ]
 
-    # Add new agentshield hooks
-    hooks[event_type].extend(new_entries)
+        # Add new agentshield hooks
+        hooks[event_type].extend(new_entries)
 
-data["hooks"] = hooks
+    data["hooks"] = hooks
 
-with open(hooks_file, "w") as f:
-    json.dump(data, f, indent=2)
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
 
-print("Claude Code hooks configured (merged with existing)")
+# Write to BOTH settings.json and hooks.json for compatibility
+claude_dir = os.path.join(home, ".claude")
+os.makedirs(claude_dir, exist_ok=True)
+
+settings_file = os.path.join(claude_dir, "settings.json")
+hooks_file = os.path.join(claude_dir, "hooks.json")
+
+merge_hooks(settings_file, agentshield_hooks)
+print("  - settings.json updated (primary)")
+
+merge_hooks(hooks_file, agentshield_hooks)
+print("  - hooks.json updated (fallback)")
 PYEOF
 
-echo -e "${GREEN}[4/4]${NC} Claude Code hooks.json updated"
+echo -e "${GREEN}[4/4]${NC} Claude Code hooks configured"
 
 # ── Test connection ──────────────────────────────────────────────────────────
 
