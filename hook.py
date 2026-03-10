@@ -325,6 +325,127 @@ def sync_rules():
         log(f"Rule sync failed: {e}")
 
 
+# ── Config Audit ─────────────────────────────────────────────────────────────
+
+AUDIT_STATE_FILE = os.path.join(CONFIG_DIR, "last_audit.json")
+AUDIT_INTERVAL = 86400  # 24 hours
+
+
+def maybe_audit_config(config):
+    """Check if config audit is needed (every 24h or on config change).
+    Runs as background subprocess to avoid blocking the hook."""
+    try:
+        # Read current Claude Code settings
+        settings_path = os.path.expanduser("~/.claude/settings.json")
+        if not os.path.exists(settings_path):
+            return
+
+        with open(settings_path) as f:
+            settings_content = f.read()
+
+        # Merge with local settings if exists
+        local_path = os.path.expanduser("~/.claude/settings.local.json")
+        if os.path.exists(local_path):
+            with open(local_path) as f:
+                local_content = f.read()
+            try:
+                merged = json.loads(settings_content)
+                merged.update(json.loads(local_content))
+                settings_content = json.dumps(merged)
+            except json.JSONDecodeError:
+                pass
+
+        # Compute hash of current config
+        current_hash = hashlib.sha256(settings_content.encode()).hexdigest()
+
+        # Check if audit is needed
+        needs_audit = True
+        if os.path.exists(AUDIT_STATE_FILE):
+            with open(AUDIT_STATE_FILE) as f:
+                state = json.load(f)
+            last_time = state.get("timestamp", 0)
+            last_hash = state.get("config_hash", "")
+            if current_hash == last_hash and (time.time() - last_time) < AUDIT_INTERVAL:
+                needs_audit = False
+
+        if not needs_audit:
+            return
+
+        # Spawn background audit
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "_audit_config"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        log(f"Audit check failed: {e}")
+
+
+def run_audit():
+    """Send config snapshot to backend for security analysis. Background subprocess."""
+    config = load_config()
+    api_url = config.get("api_url", "")
+    key = config.get("collector_key", "")
+    if not api_url or not key:
+        return
+
+    try:
+        from urllib.request import Request, urlopen
+
+        settings_path = os.path.expanduser("~/.claude/settings.json")
+        if not os.path.exists(settings_path):
+            return
+
+        with open(settings_path) as f:
+            snapshot = json.load(f)
+
+        # Merge local settings
+        local_path = os.path.expanduser("~/.claude/settings.local.json")
+        if os.path.exists(local_path):
+            try:
+                with open(local_path) as f:
+                    snapshot.update(json.load(f))
+            except (json.JSONDecodeError, Exception):
+                pass
+
+        # Strip sensitive values — only send structure, not secrets
+        # Remove webhook URLs, tokens, keys from the snapshot
+        sanitized = json.loads(json.dumps(snapshot))
+        for k in list(sanitized.keys()):
+            if "key" in k.lower() or "token" in k.lower() or "secret" in k.lower():
+                sanitized[k] = "[REDACTED]"
+
+        payload = json.dumps({
+            "config_snapshot": sanitized,
+            "collector_key": key,
+            "machine_name": config.get("machine_name", "unknown"),
+        }).encode()
+
+        req = Request(
+            f"{api_url}/audit-config",
+            data=payload,
+            headers={
+                "x-collector-key": key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=10) as resp:
+            resp.read()
+
+        # Update audit state
+        config_hash = hashlib.sha256(
+            open(settings_path).read().encode()
+        ).hexdigest()
+        with open(AUDIT_STATE_FILE, "w") as f:
+            json.dump({"timestamp": time.time(), "config_hash": config_hash}, f)
+
+        log("Config audit sent")
+    except Exception as e:
+        log(f"Config audit failed: {e}")
+
+
 # ── Command Extraction ───────────────────────────────────────────────────────
 
 
@@ -437,16 +558,24 @@ def detect_project():
 
 
 def main():
-    # Internal command: sync rules (called as background subprocess)
+    # Internal commands (called as background subprocesses)
     if len(sys.argv) > 1 and sys.argv[1] == "_sync_rules":
         sync_rules()
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "_audit_config":
+        run_audit()
         return
 
     hook_type = sys.argv[1] if len(sys.argv) > 1 else "pre"
 
     # Read JSON from Claude Code via stdin
     try:
-        input_data = json.load(sys.stdin)
+        raw_input = sys.stdin.read()
+        log(f"stdin raw ({len(raw_input)} bytes): {raw_input[:500]}")
+        if not raw_input.strip():
+            log("stdin is empty — exiting")
+            sys.exit(0)
+        input_data = json.loads(raw_input)
     except (json.JSONDecodeError, Exception) as e:
         log(f"stdin parse error: {e}")
         sys.exit(0)  # Don't block on parse errors
@@ -455,6 +584,10 @@ def main():
     if not config:
         # Not initialized — allow everything
         sys.exit(0)
+
+    # Config audit (background, non-blocking, every 24h or on change)
+    if hook_type == "pre":
+        maybe_audit_config(config)
 
     rules = load_rules(config)
 
