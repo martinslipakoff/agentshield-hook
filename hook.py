@@ -446,6 +446,41 @@ def run_audit():
         log(f"Config audit failed: {e}")
 
 
+# ── URL Extraction ────────────────────────────────────────────────────────────
+
+WEB_TOOLS = {
+    "webfetch", "web_fetch", "websearch", "web_search",
+    "mcp__browser__navigate", "mcp__browser__screenshot",
+    "mcp__puppeteer__navigate", "navigate",
+    "mcp__claude_in_chrome__navigate",
+    "mcp__claude_in_chrome__computer",
+    "mcp__claude_in_chrome__read_page",
+    "mcp__claude_in_chrome__javascript_tool",
+    "mcp__claude_preview__preview_start",
+}
+
+
+def extract_url(tool_name, tool_input):
+    """Extract URL from tool input for web access tracking."""
+    if not isinstance(tool_input, dict):
+        return None
+
+    # Direct URL keys
+    for key in ("url", "uri", "URL", "href", "target"):
+        val = tool_input.get(key)
+        if val and isinstance(val, str) and ("http" in val or "//" in val):
+            return val
+
+    # Check command field for URLs (e.g. Bash curl/wget)
+    command = tool_input.get("command", "")
+    if command:
+        match = re.search(r'https?://[^\s\'"<>]+', command)
+        if match:
+            return match.group(0)
+
+    return None
+
+
 # ── Command Extraction ───────────────────────────────────────────────────────
 
 
@@ -644,6 +679,14 @@ def main():
         "cwd": os.getcwd(),
         "source": "hook",
     }
+
+    # Add URL for web access tracking
+    url = extract_url(tool_name, tool_input)
+    if url:
+        event["url"] = url
+    # Tag web tools explicitly
+    if tool_name.lower() in WEB_TOOLS or url:
+        event["is_web_access"] = True
 
     # Add file metadata for file operations
     if tool_name.lower() in ("write", "edit", "read"):
