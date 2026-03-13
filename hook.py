@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-AgentShield Hook for Claude Code
+AgenShield Hook for Claude Code
 
 Monitors AI agent actions, evaluates risk locally, blocks dangerous operations,
-and sends audit events to the AgentShield backend.
+and sends audit events to the AgenShield backend.
 
 Configured in ~/.claude/hooks.json — see install.sh for setup.
 
@@ -710,7 +710,7 @@ def main():
     if blocked:
         # Block: output reason to stderr, exit non-zero
         print(
-            f"AgentShield BLOCKED: {block_reason} (risk: {risk_score}/100)",
+            f"AgenShield BLOCKED: {block_reason} (risk: {risk_score}/100)",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -721,7 +721,7 @@ def main():
     ):
         # Warn but allow
         print(
-            f"AgentShield WARNING: risk {risk_score}/100 "
+            f"AgenShield WARNING: risk {risk_score}/100 "
             f"({', '.join(triggered)})",
             file=sys.stderr,
         )

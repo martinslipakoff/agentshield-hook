@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# ── AgentShield Installer ────────────────────────────────────────────────────
-# Installs the AgentShield hook for Claude Code.
+# ── AgenShield Installer ─────────────────────────────────────────────────────
+# Installs the AgenShield hook for Claude Code.
 #
 # Usage:
 #   curl -sSL https://YOUR_DOMAIN/install.sh | bash -s -- --key <KEY> --url <URL>
@@ -12,7 +12,7 @@ set -euo pipefail
 #
 # What it does:
 #   1. Creates ~/.agentshield/ with config and hook script
-#   2. Configures ~/.claude/hooks.json to use AgentShield
+#   2. Configures ~/.claude/hooks.json to use AgenShield
 #   3. Sends a test event to verify connectivity
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -45,10 +45,10 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: install.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --key <KEY>       Collector API key (from AgentShield dashboard)"
-            echo "  --url <URL>       AgentShield API URL (Supabase functions URL)"
+            echo "  --key <KEY>       Collector API key (from AgenShield dashboard)"
+            echo "  --url <URL>       AgenShield API URL (Supabase functions URL)"
             echo "  --machine <NAME>  Machine name (default: hostname)"
-            echo "  --uninstall       Remove AgentShield hooks and config"
+            echo "  --uninstall       Remove AgenShield hooks and config"
             echo "  --help            Show this help"
             exit 0
             ;;
@@ -59,7 +59,7 @@ done
 # ── Uninstall ────────────────────────────────────────────────────────────────
 
 if [ "$UNINSTALL" = true ]; then
-    echo -e "${YELLOW}Removing AgentShield...${NC}"
+    echo -e "${YELLOW}Removing AgenShield...${NC}"
 
     # Remove hooks from Claude Code config
     if [ -f "$CLAUDE_HOOKS_FILE" ] && command -v python3 &>/dev/null; then
@@ -80,7 +80,7 @@ try:
     data['hooks'] = hooks
     with open(hooks_file, 'w') as f:
         json.dump(data, f, indent=2)
-    print('Removed AgentShield from hooks.json')
+    print('Removed AgenShield from hooks.json')
 except Exception as e:
     print(f'Warning: could not update hooks.json: {e}')
 "
@@ -92,14 +92,14 @@ except Exception as e:
         echo -e "${GREEN}Removed $INSTALL_DIR${NC}"
     fi
 
-    echo -e "${GREEN}AgentShield uninstalled.${NC}"
+    echo -e "${GREEN}AgenShield uninstalled.${NC}"
     exit 0
 fi
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "${BLUE}${BOLD}  AgentShield Installer${NC}"
+echo -e "${BLUE}${BOLD}  AgenShield Installer${NC}"
 echo -e "${BLUE}  Secure your AI agent workflow${NC}"
 echo ""
 
@@ -136,7 +136,7 @@ echo -e "${GREEN}Prerequisites OK${NC} (python $PY_VERSION, curl)"
 
 if [ -z "$API_URL" ]; then
     echo ""
-    echo -e "${BOLD}Enter your AgentShield API URL${NC}"
+    echo -e "${BOLD}Enter your AgenShield API URL${NC}"
     echo -e "  (from the dashboard Setup page, e.g. https://xxx.supabase.co/functions/v1)"
     read -rp "  API URL: " API_URL
 fi
@@ -348,7 +348,7 @@ fi
 # ── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "${GREEN}${BOLD}AgentShield installed successfully!${NC}"
+echo -e "${GREEN}${BOLD}AgenShield installed successfully!${NC}"
 echo ""
 echo -e "  Config:      $CONFIG_FILE"
 echo -e "  Hook:        $HOOK_SCRIPT"
@@ -357,7 +357,7 @@ echo -e "  Logs:        $INSTALL_DIR/hook.log"
 echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
 echo -e "  1. Restart Claude Code (or start a new session)"
-echo -e "  2. Run any command — you'll see AgentShield monitoring in the dashboard"
+echo -e "  2. Run any command — you'll see AgenShield monitoring in the dashboard"
 echo ""
 echo -e "  To change settings:  edit $CONFIG_FILE"
 echo -e "  To view logs:        tail -f $INSTALL_DIR/hook.log"
