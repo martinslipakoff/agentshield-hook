@@ -539,8 +539,24 @@ def evaluate_rules(command, rules):
 # ── Event Sending ────────────────────────────────────────────────────────────
 
 
+def _do_post(api_url, key, payload):
+    """Perform the actual HTTP POST. Used in both sync and forked modes."""
+    from urllib.request import Request, urlopen
+    req = Request(
+        f"{api_url}/ingest-events",
+        data=payload.encode(),
+        headers={
+            "x-collector-key": key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(req, timeout=10) as resp:
+        resp.read()
+
+
 def send_event(event, config, sync=False):
-    """POST event to backend. Background by default, sync for blocked events."""
+    """POST event to backend. Uses os.fork() for background to survive parent exit."""
     api_url = config.get("api_url")
     key = config.get("collector_key")
     if not api_url or not key:
@@ -548,42 +564,39 @@ def send_event(event, config, sync=False):
         return
 
     payload = json.dumps([event])
-    curl_args = [
-        "curl",
-        "-s",
-        "-o",
-        "/dev/null",
-        "-X",
-        "POST",
-        f"{api_url}/ingest-events",
-        "-H",
-        "Content-Type: application/json",
-        "-H",
-        f"x-collector-key: {key}",
-        "-d",
-        payload,
-        "--max-time",
-        "5" if sync else "10",
-    ]
+
+    if sync:
+        # Blocked events: send synchronously before exit(2)
+        try:
+            _do_post(api_url, key, payload)
+        except Exception as e:
+            log(f"Event send (sync) failed: {e}")
+        return
+
+    # Background: fork a child process that survives the parent
     try:
-        if sync:
-            # Blocked events: send synchronously so the event arrives
-            # before the process exits with non-zero
-            subprocess.run(
-                curl_args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=6,
-            )
+        pid = os.fork()
+        if pid == 0:
+            # Child process — double-fork to fully detach
+            try:
+                pid2 = os.fork()
+                if pid2 == 0:
+                    # Grandchild: do the actual POST
+                    try:
+                        _do_post(api_url, key, payload)
+                    except Exception:
+                        pass
+                    os._exit(0)
+                else:
+                    # First child: exit immediately
+                    os._exit(0)
+            except Exception:
+                os._exit(1)
         else:
-            subprocess.Popen(
-                curl_args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            # Parent: reap the first child immediately
+            os.waitpid(pid, 0)
     except Exception as e:
-        log(f"Event send failed: {e}")
+        log(f"Event send (fork) failed: {e}")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
