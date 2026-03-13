@@ -539,8 +539,8 @@ def evaluate_rules(command, rules):
 # ── Event Sending ────────────────────────────────────────────────────────────
 
 
-def send_event(event, config):
-    """POST event to backend in a background process (non-blocking)."""
+def send_event(event, config, sync=False):
+    """POST event to backend. Background by default, sync for blocked events."""
     api_url = config.get("api_url")
     key = config.get("collector_key")
     if not api_url or not key:
@@ -548,29 +548,40 @@ def send_event(event, config):
         return
 
     payload = json.dumps([event])
+    curl_args = [
+        "curl",
+        "-s",
+        "-o",
+        "/dev/null",
+        "-X",
+        "POST",
+        f"{api_url}/ingest-events",
+        "-H",
+        "Content-Type: application/json",
+        "-H",
+        f"x-collector-key: {key}",
+        "-d",
+        payload,
+        "--max-time",
+        "5" if sync else "10",
+    ]
     try:
-        subprocess.Popen(
-            [
-                "curl",
-                "-s",
-                "-o",
-                "/dev/null",
-                "-X",
-                "POST",
-                f"{api_url}/ingest-events",
-                "-H",
-                "Content-Type: application/json",
-                "-H",
-                f"x-collector-key: {key}",
-                "-d",
-                payload,
-                "--max-time",
-                "10",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        if sync:
+            # Blocked events: send synchronously so the event arrives
+            # before the process exits with non-zero
+            subprocess.run(
+                curl_args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=6,
+            )
+        else:
+            subprocess.Popen(
+                curl_args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
     except Exception as e:
         log(f"Event send failed: {e}")
 
@@ -697,8 +708,9 @@ def main():
             "read" if tool_name.lower() == "read" else "write"
         )
 
-    # Send event to backend (background, non-blocking)
-    send_event(event, config)
+    # Send event to backend
+    # Blocked events are sent synchronously so the curl completes before exit(2)
+    send_event(event, config, sync=blocked)
 
     log(
         f"{hook_type} | {tool_name} | risk={risk_score} | "
