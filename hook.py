@@ -28,7 +28,7 @@ CONFIG_DIR = os.path.expanduser("~/.agentshield")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 RULES_CACHE = os.path.join(CONFIG_DIR, "rules_cache.json")
 LOG_FILE = os.path.join(CONFIG_DIR, "hook.log")
-RULES_CACHE_TTL = 3600  # 1 hour
+RULES_CACHE_TTL = 300  # 5 minutes
 
 # ── Default Security Rules ───────────────────────────────────────────────────
 # These are used when the backend is unreachable or rules haven't been synced.
@@ -254,6 +254,11 @@ def load_rules(config):
                 cache = json.load(f)
             cache_age = time.time() - cache.get("fetched_at", 0)
             rules = cache.get("rules", DEFAULT_RULES)
+            # Merge allowlists from cache into config (immediate fallback)
+            cached_settings = cache.get("settings", {})
+            for key_name in ("allowlist_commands", "allowlist_paths", "allowlist_domains"):
+                if key_name in cached_settings and key_name not in config:
+                    config[key_name] = cached_settings[key_name]
             # If cache is stale, trigger async refresh
             if cache_age > RULES_CACHE_TTL:
                 _refresh_rules_async(config)
@@ -314,7 +319,8 @@ def sync_rules():
         # Update local settings from server if present
         server_settings = data.get("settings", {})
         if server_settings:
-            for key_name in ("mode", "alert_threshold", "block_threshold"):
+            for key_name in ("mode", "alert_threshold", "block_threshold",
+                             "allowlist_commands", "allowlist_paths", "allowlist_domains"):
                 if key_name in server_settings:
                     config[key_name] = server_settings[key_name]
             with open(CONFIG_FILE, "w") as f:
@@ -660,11 +666,32 @@ def main():
     # Evaluate rules
     triggered, risk_score, severity = evaluate_rules(command, rules)
 
-    # Check allowlists — if command matches, override to safe
+    # ── Check ALL allowlists ──────────────────────────────────────────────
+    # Command allowlist
     for allowed in config.get("allowlist_commands", []):
         if allowed and allowed in command:
             triggered, risk_score, severity = [], 0, "info"
+            log(f"Allowlisted by command pattern: {allowed}")
             break
+
+    # Path allowlist
+    if triggered:
+        file_path = tool_input.get("file_path", tool_input.get("path", ""))
+        for allowed in config.get("allowlist_paths", []):
+            if allowed and file_path and allowed in file_path:
+                triggered, risk_score, severity = [], 0, "info"
+                log(f"Allowlisted by path pattern: {allowed}")
+                break
+
+    # Domain allowlist
+    if triggered:
+        url_check = extract_url(tool_name, tool_input)
+        if url_check:
+            for allowed in config.get("allowlist_domains", []):
+                if allowed and allowed in url_check:
+                    triggered, risk_score, severity = [], 0, "info"
+                    log(f"Allowlisted by domain pattern: {allowed}")
+                    break
 
     # Determine if we should block (only on PreToolUse in block mode)
     blocked = False
