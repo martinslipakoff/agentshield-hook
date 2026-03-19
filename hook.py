@@ -667,31 +667,40 @@ def main():
     triggered, risk_score, severity = evaluate_rules(command, rules)
 
     # ── Check ALL allowlists ──────────────────────────────────────────────
-    # Command allowlist
-    for allowed in config.get("allowlist_commands", []):
-        if allowed and allowed in command:
-            triggered, risk_score, severity = [], 0, "info"
-            log(f"Allowlisted by command pattern: {allowed}")
-            break
+    # Critical rules NEVER get bypassed by allowlists
+    has_critical = any(
+        r.get("severity") == "critical"
+        for r in rules if r["id"] in triggered
+    )
 
-    # Path allowlist
-    if triggered:
-        file_path = tool_input.get("file_path", tool_input.get("path", ""))
-        for allowed in config.get("allowlist_paths", []):
-            if allowed and file_path and allowed in file_path:
+    if triggered and not has_critical:
+        # Command allowlist
+        for allowed in config.get("allowlist_commands", []):
+            if allowed and allowed.lower() in command.lower():
                 triggered, risk_score, severity = [], 0, "info"
-                log(f"Allowlisted by path pattern: {allowed}")
+                log(f"Allowlisted by command pattern: {allowed}")
                 break
 
-    # Domain allowlist
-    if triggered:
-        url_check = extract_url(tool_name, tool_input)
-        if url_check:
-            for allowed in config.get("allowlist_domains", []):
-                if allowed and allowed in url_check:
+        # Path allowlist
+        if triggered:
+            file_path = tool_input.get("file_path", tool_input.get("path", ""))
+            for allowed in config.get("allowlist_paths", []):
+                if allowed and file_path and allowed.lower() in file_path.lower():
                     triggered, risk_score, severity = [], 0, "info"
-                    log(f"Allowlisted by domain pattern: {allowed}")
+                    log(f"Allowlisted by path pattern: {allowed}")
                     break
+
+        # Domain allowlist
+        if triggered:
+            url_check = extract_url(tool_name, tool_input)
+            if url_check:
+                for allowed in config.get("allowlist_domains", []):
+                    if allowed and allowed.lower() in url_check.lower():
+                        triggered, risk_score, severity = [], 0, "info"
+                        log(f"Allowlisted by domain pattern: {allowed}")
+                        break
+    elif has_critical:
+        log(f"Critical rule triggered — allowlist bypassed")
 
     # Determine if we should block (only on PreToolUse in block mode)
     blocked = False
